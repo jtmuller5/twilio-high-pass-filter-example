@@ -58,7 +58,7 @@ twilioWss.on("connection", async (ws: WebSocket, request: IncomingMessage) => {
                 start: {
                   accountSid: '1234',
                   streamSid: 'MZ14f465fb39b99eb0b0efd4bd5456cc8d',
-                  callSid: 'CA927967df4941ead9390f93f3f4cd14c5',
+                  callSid: '6789',
                   tracks: [ 'inbound' ],
                   mediaFormat: { encoding: 'audio/x-mulaw', sampleRate: 8000, channels: 1 },
                   customParameters: { from: '+13152716606' }
