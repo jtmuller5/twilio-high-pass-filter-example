@@ -1,6 +1,14 @@
 import { IncomingMessage } from "http";
 import WebSocket, { WebSocketServer } from "ws";
 import { promises as fs } from "fs";
+import { biquadFilter, createBiquadBandpassFilter } from "./filters/biquad";
+import { BiquadFilterState } from "./filters/types";
+import {
+  computeAlpha,
+  computeAlphaLowPass,
+  highPassFilter,
+} from "./filters/singlePole";
+import { bandPassFilter } from "./filters/bandPass";
 
 export interface TwilioSocket {
   ws: WebSocket;
@@ -12,6 +20,12 @@ export interface TwilioSocket {
   prevSampleOut?: number;
   recordedSamplesUnfiltered?: Int16Array[];
   recordedSamplesFiltered?: Int16Array[];
+  biquadState?: BiquadFilterState;
+  bandPassState?: {
+    prevSampleInHP: number;
+    prevSampleOutHP: number;
+    prevSampleOutLP: number;
+  };
 }
 
 export const twilioWss = new WebSocketServer({ noServer: true });
@@ -87,7 +101,9 @@ twilioWss.on("connection", async (ws: WebSocket, request: IncomingMessage) => {
             // Now we should have connection.aiSocket
             if (jsonMessage.media && jsonMessage.media.payload) {
               chunkCounter++;
-              await filterTwilioAudioAndSaveToWav(
+              // highPassFilterAndSaveToWav(jsonMessage.media.payload, connection, chunkCounter);
+              // bandPassFilterAndSaveToWav(jsonMessage.media.payload, connection, chunkCounter);
+              await biquadBandPassFilterAndSaveToWav(
                 jsonMessage.media.payload,
                 connection,
                 chunkCounter
@@ -182,45 +198,9 @@ function mergeInt16Arrays(chunks: Int16Array[]): Int16Array {
 
 const SAMPLE_RATE = 8000;
 const HP_CUTOFF = 300; // frequency in Hz
+const LP_CUTOFF = 3400; // in Hz
 
-async function handleTwilioAudioWithFilter(
-  audioPayload: string,
-  connection: TwilioSocket
-) {
-  try {
-    // 1) Base64-decode
-    const muLawBuffer = Buffer.from(audioPayload, "base64");
-
-    // 2) Decode µ-law -> Int16 PCM
-    const samples = decodeMuLawBuffer(muLawBuffer);
-
-    // 3) Apply the high-pass filter
-    //    Initialize filter state if not done yet
-    if (connection.prevSampleIn === undefined) {
-      connection.prevSampleIn = 0;
-      connection.prevSampleOut = 0;
-    }
-    const alpha = computeAlpha(HP_CUTOFF, SAMPLE_RATE);
-    const { filtered, newPrevIn, newPrevOut } = highPassFilter(
-      samples,
-      alpha,
-      connection.prevSampleIn,
-      connection.prevSampleOut!
-    );
-    connection.prevSampleIn = newPrevIn;
-    connection.prevSampleOut = newPrevOut;
-
-    // 4) Re-encode the filtered PCM to µ-law
-    const reencodedMuLawBuf = encodeMuLawBuffer(filtered);
-
-    // 5) Base64-encode for your AI socket
-    const reencodedBase64 = reencodedMuLawBuf.toString("base64");
-  } catch (error) {
-    console.error("Error handling Twilio audio:", error);
-  }
-}
-
-async function filterTwilioAudioAndSaveToWav(
+async function highPassFilterAndSaveToWav(
   audioPayload: string,
   connection: TwilioSocket,
   chunkNumber: number
@@ -267,6 +247,108 @@ async function filterTwilioAudioAndSaveToWav(
     );
   } catch (err) {
     console.error("Error filtering + storing WAV data:", err);
+  }
+}
+
+// Example usage:
+async function bandPassFilterAndSaveToWav(
+  audioPayload: string,
+  connection: TwilioSocket,
+  chunkNumber: number
+) {
+  try {
+    // 1) Decode base64 & µ-law → Int16
+    const muLawBuffer = Buffer.from(audioPayload, "base64");
+    const pcmSamples = decodeMuLawBuffer(muLawBuffer);
+
+    // 2) Always store unfiltered
+    connection.recordedSamplesUnfiltered ||= [];
+    connection.recordedSamplesUnfiltered.push(pcmSamples);
+
+    // 3) If needed, init the bandPassState once
+    if (!connection.bandPassState) {
+      connection.bandPassState = {
+        prevSampleInHP: 0,
+        prevSampleOutHP: 0,
+        prevSampleOutLP: 0,
+      };
+    }
+
+    // 4) Compute alphaHP, alphaLP
+    const alphaHP = computeAlpha(HP_CUTOFF, SAMPLE_RATE); // e.g. 300 Hz
+    const alphaLP = computeAlphaLowPass(LP_CUTOFF, SAMPLE_RATE); // e.g. 3400 Hz
+
+    // 5) Band-pass filter
+    const { filtered, newState } = bandPassFilter(
+      pcmSamples,
+      alphaHP,
+      alphaLP,
+      connection.bandPassState
+    );
+    connection.bandPassState = newState; // store updated filter state
+
+    // 6) Keep the filtered version
+    connection.recordedSamplesFiltered ||= [];
+    connection.recordedSamplesFiltered.push(filtered);
+
+    console.log(
+      `Stored chunk #${chunkNumber} - raw length=${pcmSamples.length}, filtered length=${filtered.length}.`
+    );
+  } catch (err) {
+    console.error("Error filtering + storing WAV data:", err);
+  }
+}
+
+async function biquadBandPassFilterAndSaveToWav(
+  audioPayload: string,
+  connection: TwilioSocket,
+  chunkNumber: number
+) {
+  try {
+    // 1) Decode base64 & µ-law
+    const muLawBuffer = Buffer.from(audioPayload, "base64");
+    const pcmSamples = decodeMuLawBuffer(muLawBuffer);
+
+    // 2) Store unfiltered
+    if (!connection.recordedSamplesUnfiltered) {
+      connection.recordedSamplesUnfiltered = [];
+    }
+    connection.recordedSamplesUnfiltered.push(pcmSamples);
+
+    // 3) Initialize biquad filter state if needed
+    if (!connection.biquadState) {
+      connection.biquadState = {
+        x1: 0,
+        x2: 0,
+        y1: 0,
+        y2: 0,
+      };
+    }
+
+    // 4) Create/get filter coefficients (could be stored as constant)
+    const centerFreq = 1000; // 1kHz center frequency
+    const Q = 1.0; // Q factor
+    const coeffs = createBiquadBandpassFilter(centerFreq, Q, SAMPLE_RATE);
+
+    // 5) Apply biquad filter
+    const { filtered, newState } = biquadFilter(
+      pcmSamples,
+      coeffs,
+      connection.biquadState
+    );
+    connection.biquadState = newState;
+
+    // 6) Store filtered version
+    if (!connection.recordedSamplesFiltered) {
+      connection.recordedSamplesFiltered = [];
+    }
+    connection.recordedSamplesFiltered.push(filtered);
+
+    console.log(
+      `Processed chunk #${chunkNumber} - raw length=${pcmSamples.length}, filtered length=${filtered.length}`
+    );
+  } catch (err) {
+    console.error("Error in biquad filtering:", err);
   }
 }
 
@@ -319,34 +401,6 @@ function encodeWav(
   }
 
   return wavBuffer;
-}
-
-// Minimal reuse of single-pole filter logic
-function computeAlpha(cutoff: number, sampleRate: number): number {
-  const rc = 1 / (2 * Math.PI * cutoff);
-  const dt = 1 / sampleRate;
-  return rc / (rc + dt);
-}
-
-function highPassFilter(
-  samples: Int16Array,
-  alpha: number,
-  prevSampleIn: number,
-  prevSampleOut: number
-): { filtered: Int16Array; newPrevIn: number; newPrevOut: number } {
-  const filtered = new Int16Array(samples.length);
-  let pIn = prevSampleIn;
-  let pOut = prevSampleOut;
-
-  for (let i = 0; i < samples.length; i++) {
-    const x = samples[i];
-    const y = alpha * (pOut + x - pIn);
-    filtered[i] = y; // truncated to 16-bit
-    pIn = x;
-    pOut = y;
-  }
-
-  return { filtered, newPrevIn: pIn, newPrevOut: pOut };
 }
 
 // mediaFormat: { encoding: 'audio/x-mulaw', sampleRate: 8000, channels: 1 },
