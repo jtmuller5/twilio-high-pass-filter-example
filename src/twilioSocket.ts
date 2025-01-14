@@ -113,9 +113,11 @@ twilioWss.on("connection", async (ws: WebSocket, request: IncomingMessage) => {
             // Now we should have connection.aiSocket
             if (jsonMessage.media && jsonMessage.media.payload) {
               chunkCounter++;
-              // highPassFilterAndSaveToWav(jsonMessage.media.payload, connection, chunkCounter);
-              // bandPassFilterAndSaveToWav(jsonMessage.media.payload, connection, chunkCounter);
-              await biquadBandPassFilterAndSaveToWav(
+              // TODO - Select filter
+              // highPassFilterAndSaveToWav
+              // bandPassFilterAndSaveToWav
+              // biquadBandPassFilterAndSaveToWav
+              await highPassFilterAndSaveToWav(
                 jsonMessage.media.payload,
                 connection,
                 chunkCounter
