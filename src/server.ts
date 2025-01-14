@@ -52,8 +52,6 @@ server.on("upgrade", (request, socket, head) => {
 app.post("/voice", async (req, res) => {
   console.log("Received voice call:", JSON.stringify(req.body));
 
-  const { From } = req.body as CallRequest;
-
   const twimlResponse = new twiml.VoiceResponse();
 
   const connect = twimlResponse.connect();
@@ -61,41 +59,6 @@ app.post("/voice", async (req, res) => {
     url: `wss://${req.headers.host}/stream`,
   });
 
-  stream.parameter({
-    name: "From",
-    value: From,
-  });
-
   res.type("text/xml");
   res.send(twimlResponse.toString());
 });
-
-export interface CallRequest {
-  Called: string;
-  ToState: string;
-  CallerCountry: string;
-  Direction: string;
-  CallerState: string;
-  ToZip: string;
-  CallSid: string;
-  To: string;
-  CallerZip: string;
-  ToCountry: string;
-  StirVerstat: string;
-  CallToken: string;
-  CalledZip: string;
-  ApiVersion: string;
-  CalledCity: string;
-  CallStatus: string;
-  From: string;
-  AccountSid: string;
-  CalledCountry: string;
-  CallerCity: string;
-  ToCity: string;
-  FromCountry: string;
-  Caller: string;
-  FromCity: string;
-  CalledState: string;
-  FromZip: string;
-  FromState: string;
-}

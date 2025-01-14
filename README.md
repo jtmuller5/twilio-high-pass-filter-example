@@ -41,3 +41,39 @@ Example:
 ![High-pass amplitude chart](image-1.png)
 
 ![High-pass frequency chart](image-2.png)
+
+# Twilio Resources
+
+## Start Payload
+
+```
+{
+    event: 'start',
+    sequenceNumber: '1',
+    start: {
+      accountSid: '1234',
+      streamSid: 'MZ14f465fb39b99eb0b0efd4bd5456cc8d',
+      callSid: '6789',
+      tracks: [ 'inbound' ],
+      mediaFormat: { encoding: 'audio/x-mulaw', sampleRate: 8000, channels: 1 },
+      customParameters: { from: '+13152716606' }
+    },
+    streamSid: 'MZ14f465fb39b99eb0b0efd4bd5456cc8d'
+}
+```
+
+## Media Payload
+```
+{
+"event":"media",
+"sequenceNumber":"3122",
+"media":
+  {
+    "track":"inbound",
+    "chunk":"3121",
+    "timestamp":"62411",
+    "payload":"////f39////////..."
+  },
+"streamSid":"MZe36496a19c2240a634016c64787ee984"
+}
+```

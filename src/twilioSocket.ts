@@ -24,7 +24,6 @@ export interface TwilioSocket {
   ws: WebSocket;
   streamSid: string | null;
   callSid: string | null;
-  host: string | null;
   phoneNumber: string | null;
   prevSampleIn?: number;
   prevSampleOut?: number;
@@ -45,15 +44,10 @@ export const twilioWss = new WebSocketServer({ noServer: true });
 twilioWss.on("connection", async (ws: WebSocket, request: IncomingMessage) => {
   console.log("Twilio WebSocket connected");
 
-  const host = request.headers.host;
-
-  console.log(`Headers: ${JSON.stringify(request.headers)}`);
-
   const connection: TwilioSocket = {
     ws,
     streamSid: null,
     callSid: null,
-    host: host || null,
     phoneNumber: null,
   };
 
@@ -77,39 +71,10 @@ twilioWss.on("connection", async (ws: WebSocket, request: IncomingMessage) => {
             break;
 
           case "start":
-            /*
-            {
-                event: 'start',
-                sequenceNumber: '1',
-                start: {
-                  accountSid: '1234',
-                  streamSid: 'MZ14f465fb39b99eb0b0efd4bd5456cc8d',
-                  callSid: '6789',
-                  tracks: [ 'inbound' ],
-                  mediaFormat: { encoding: 'audio/x-mulaw', sampleRate: 8000, channels: 1 },
-                  customParameters: { from: '+13152716606' }
-                },
-                streamSid: 'MZ14f465fb39b99eb0b0efd4bd5456cc8d'
-            }
-            */
             console.log("Twilio stream started: ", jsonMessage);
             break;
 
           case "media":
-            /* 
-                {
-                "event":"media",
-                "sequenceNumber":"3122",
-                "media":
-                  {
-                    "track":"inbound",
-                    "chunk":"3121",
-                    "timestamp":"62411",
-                    "payload":"////f39////////..."
-                  },
-                "streamSid":"MZe36496a19c2240a634016c64787ee984"
-                }
-            */
             // Now we should have connection.aiSocket
             if (jsonMessage.media && jsonMessage.media.payload) {
               chunkCounter++;
