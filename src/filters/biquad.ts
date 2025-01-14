@@ -20,6 +20,26 @@ export function createBiquadBandpassFilter(
   };
 }
 
+export function createBiquadHighPassFilter(
+    frequency: number,
+    Q: number,
+    sampleRate: number
+  ): BiquadCoefficients {
+    const w0 = 2 * Math.PI * frequency / sampleRate;
+    const alpha = Math.sin(w0) / (2 * Q);
+    const cos_w0 = Math.cos(w0);
+    
+    const norm = 1 / (1 + alpha);
+    
+    return {
+      a0: (1 + cos_w0) * 0.5 * norm,
+      a1: -(1 + cos_w0) * norm,
+      a2: (1 + cos_w0) * 0.5 * norm,
+      b1: -2 * cos_w0 * norm,
+      b2: (1 - alpha) * norm
+    };
+  }
+
 export function biquadFilter(
   samples: Int16Array,
   coeffs: BiquadCoefficients,

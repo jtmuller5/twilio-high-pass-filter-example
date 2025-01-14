@@ -1,7 +1,11 @@
 import { IncomingMessage } from "http";
 import WebSocket, { WebSocketServer } from "ws";
 import { promises as fs } from "fs";
-import { biquadFilter, createBiquadBandpassFilter } from "./filters/biquad";
+import {
+  biquadFilter,
+  createBiquadBandpassFilter,
+  createBiquadHighPassFilter,
+} from "./filters/biquad";
 import { BiquadFilterState } from "./filters/types";
 import {
   computeAlpha,
@@ -9,6 +13,12 @@ import {
   highPassFilter,
 } from "./filters/singlePole";
 import { bandPassFilter } from "./filters/bandPass";
+import {
+  createFIRFilterState,
+  createFIRLowPassCoefficients,
+  firFilter,
+  FIRFilterState,
+} from "./filters/fir";
 
 export interface TwilioSocket {
   ws: WebSocket;
@@ -21,6 +31,8 @@ export interface TwilioSocket {
   recordedSamplesUnfiltered?: Int16Array[];
   recordedSamplesFiltered?: Int16Array[];
   biquadState?: BiquadFilterState;
+  firState?: FIRFilterState;
+  firCoefficients?: number[];
   bandPassState?: {
     prevSampleInHP: number;
     prevSampleOutHP: number;
@@ -250,7 +262,6 @@ async function highPassFilterAndSaveToWav(
   }
 }
 
-// Example usage:
 async function bandPassFilterAndSaveToWav(
   audioPayload: string,
   connection: TwilioSocket,
@@ -349,6 +360,105 @@ async function biquadBandPassFilterAndSaveToWav(
     );
   } catch (err) {
     console.error("Error in biquad filtering:", err);
+  }
+}
+
+async function biquadHighPassFilterAndSaveToWav(
+  audioPayload: string,
+  connection: TwilioSocket,
+  chunkNumber: number
+) {
+  try {
+    // 1) Decode base64 & µ-law → Int16
+    const muLawBuffer = Buffer.from(audioPayload, "base64");
+    const pcmSamples = decodeMuLawBuffer(muLawBuffer);
+
+    // 2) Always store unfiltered version
+    connection.recordedSamplesUnfiltered ||= [];
+    connection.recordedSamplesUnfiltered.push(pcmSamples);
+
+    // 3) Initialize biquad state if needed
+    if (!connection.biquadState) {
+      connection.biquadState = {
+        x1: 0,
+        x2: 0,
+        y1: 0,
+        y2: 0,
+      };
+    }
+
+    // 4) Create the high-pass filter coefficients
+    const cutoffFreq = 300; // 300 Hz cutoff
+    const Q = 0.707; // Butterworth response
+    const coeffs = createBiquadHighPassFilter(cutoffFreq, Q, SAMPLE_RATE);
+
+    // 5) Apply the filter
+    const { filtered, newState } = biquadFilter(
+      pcmSamples,
+      coeffs,
+      connection.biquadState
+    );
+    connection.biquadState = newState;
+
+    // 6) Store filtered version
+    connection.recordedSamplesFiltered ||= [];
+    connection.recordedSamplesFiltered.push(filtered);
+
+    console.log(
+      `Processed chunk #${chunkNumber} - raw length=${pcmSamples.length}, filtered length=${filtered.length}`
+    );
+  } catch (err) {
+    console.error("Error in biquad high-pass filtering:", err);
+  }
+}
+
+async function firFilterAndSaveToWav(
+  audioPayload: string,
+  connection: TwilioSocket,
+  chunkNumber: number
+) {
+  try {
+    // 1) Decode base64 & µ-law
+    const muLawBuffer = Buffer.from(audioPayload, "base64");
+    const pcmSamples = decodeMuLawBuffer(muLawBuffer);
+
+    // 2) Store unfiltered
+    if (!connection.recordedSamplesUnfiltered) {
+      connection.recordedSamplesUnfiltered = [];
+    }
+    connection.recordedSamplesUnfiltered.push(pcmSamples);
+
+    // 3) Initialize FIR filter if needed
+    if (!connection.firState) {
+      const numTaps = 51; // Odd number for symmetric filter
+      connection.firState = createFIRFilterState(numTaps);
+      // Create coefficients (could be stored as constant)
+      connection.firCoefficients = createFIRLowPassCoefficients(
+        3400, // cutoff frequency
+        SAMPLE_RATE,
+        numTaps
+      );
+    }
+
+    // 4) Apply FIR filter
+    const { filtered, newState } = firFilter(
+      pcmSamples,
+      connection.firCoefficients ?? [],
+      connection.firState
+    );
+    connection.firState = newState;
+
+    // 5) Store filtered version
+    if (!connection.recordedSamplesFiltered) {
+      connection.recordedSamplesFiltered = [];
+    }
+    connection.recordedSamplesFiltered.push(filtered);
+
+    console.log(
+      `Processed chunk #${chunkNumber} - raw length=${pcmSamples.length}, filtered length=${filtered.length}`
+    );
+  } catch (err) {
+    console.error("Error in FIR filtering:", err);
   }
 }
 
