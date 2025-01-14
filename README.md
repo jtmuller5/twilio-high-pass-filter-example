@@ -4,6 +4,13 @@
 
 Create a Twilio account and purchase a new number.
 
+## Choose your Filter
+There is a `TODO` in the [`twilioSocket.ts`](./src/twilioSocket.ts) file with the filter options. Select which one you want from the list:
+
+- highPassFilterAndSaveToWav
+- bandPassFilterAndSaveToWav
+- biquadBandPassFilterAndSaveToWav
+
 ## Run the Server
 
 Use the VS Code "Run Server" task or the following command to run the server:
@@ -29,3 +36,8 @@ When the websocket disconnects, the server will create two files: `twilio_call_f
 ## Visualize the Filter
 
 Open the `wav_visualizer.ipynb` notebook and run the code cell.
+
+Example:
+![High-pass amplitude chart](image-1.png)
+
+![High-pass frequency chart](image-2.png)
